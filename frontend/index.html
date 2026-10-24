@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="vi" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NetPulse — Network Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2322d3ee' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M2 12h4l3-8 4 16 3-8h6'/%3E%3C/svg%3E" />
+</head>
+<body>
+  <div class="backdrop" aria-hidden="true">
+    <div class="grid-bg"></div>
+    <div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div>
+  </div>
+
+  <div class="app">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-logo" data-icon="pulse"></div>
+        <div>
+          <div class="brand-name">Net<span>Pulse</span></div>
+          <div class="brand-sub">Local Monitor</div>
+        </div>
+      </div>
+      <nav class="nav" id="nav"></nav>
+      <div class="sidebar-foot">
+        <div class="agent-row"><span class="live-dot" id="agentDot"></span><b style="font-size:12.5px">Local Agent</b><span class="v muted" id="agentMode">…</span></div>
+        <div class="agent-row"><span class="k" data-i18n>Cập nhật</span><span class="v" id="agentInterval">1s</span></div>
+        <div class="agent-row"><span class="k">Uptime</span><span class="v" id="agentUptime">00:00:00</span></div>
+      </div>
+    </aside>
+    <div class="overlay" id="overlay"></div>
+
+    <div class="main">
+      <header class="topbar">
+        <button class="icon-btn menu-btn" id="menuBtn" aria-label="Menu" data-icon="menu"></button>
+        <div class="page-title">
+          <h1 id="pageTitle">Tổng quan</h1>
+          <p id="pageSub">Trạng thái mạng hiện tại</p>
+        </div>
+        <div class="topbar-right">
+          <span class="demo-badge" id="demoBadge" data-i18n-title title="Chế độ demo: dữ liệu mô phỏng. Bỏ ?demo khỏi địa chỉ để xem dữ liệu thật">DEMO DATA</span>
+          <div class="conn-pill" id="connPill">
+            <span class="live-dot" id="liveDot"></span>
+            <span id="connName">—</span>
+            <span class="speeds"><span>↓ <b class="d" id="pillDown">0</b></span><span>↑ <b class="u" id="pillUp">0</b></span></span>
+          </div>
+          <button class="icon-btn" id="pauseBtn" data-i18n-title title="Tạm dừng / tiếp tục cập nhật" data-icon="pause"></button>
+          <div class="lang-switch" id="langSwitch" role="group" aria-label="Language / Ngôn ngữ">
+            <button type="button" data-lang="en" title="English">EN</button>
+            <button type="button" data-lang="vi" title="Tiếng Việt">VI</button>
+          </div>
+          <button class="icon-btn" id="themeBtn" data-i18n-title title="Đổi giao diện sáng/tối" data-icon="moon"></button>
+        </div>
+      </header>
+      <div class="offline-bar" id="offlineBar" style="display:none"><span class="live-dot off"></span><span data-i18n>Mất kết nối với NetPulse Agent — đang thử lại… (agent có đang chạy không? chạy <b>start.bat</b>)</span></div>
+      <main class="view" id="view"></main>
+    </div>
+  </div>
+
+  <div class="toasts" id="toasts"></div>
+
+  <script src="vendor/chart.umd.min.js"></script>
+  <script src="js/icons.js"></script>
+  <script src="js/i18n.js"></script>
+  <script src="js/utils.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/pages/dashboard.js"></script>
+  <script src="js/pages/realtime.js"></script>
+  <script src="js/pages/wifi.js"></script>
+  <script src="js/pages/analytics.js"></script>
+  <script src="js/pages/quality.js"></script>
+  <script src="js/pages/logs.js"></script>
+  <script src="js/pages/tools.js"></script>
+  <script src="js/pages/settings.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

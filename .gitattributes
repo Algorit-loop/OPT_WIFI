@@ -1,0 +1,13 @@
+# Mặc định: git tự chuẩn hoá xuống dòng
+* text=auto
+
+# Script Windows phải giữ CRLF, nếu không cmd có thể nhảy sai nhãn (goto)
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.vbs text eol=crlf
+
+# File nhị phân
+*.png binary
+*.ico binary
+*.woff binary
+*.woff2 binary
