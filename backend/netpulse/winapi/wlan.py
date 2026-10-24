@@ -109,6 +109,34 @@ class WLAN_BSS_LIST(ctypes.Structure):
     _fields_ = [("dwTotalSize", wintypes.DWORD), ("dwNumberOfItems", wintypes.DWORD), ("wlanBssEntries", WLAN_BSS_ENTRY * 1)]
 
 
+class WLAN_AVAILABLE_NETWORK(ctypes.Structure):
+    _fields_ = [
+        ("strProfileName", ctypes.c_wchar * 256), ("dot11Ssid", DOT11_SSID), ("dot11BssType", ctypes.c_int),
+        ("uNumberOfBssids", wintypes.ULONG), ("bNetworkConnectable", wintypes.BOOL), ("wlanNotConnectableReason", wintypes.DWORD),
+        ("uNumberOfPhyTypes", wintypes.ULONG), ("dot11PhyTypes", ctypes.c_int * 8), ("bMorePhyTypes", wintypes.BOOL),
+        ("wlanSignalQuality", wintypes.ULONG), ("bSecurityEnabled", wintypes.BOOL),
+        ("dot11DefaultAuthAlgorithm", ctypes.c_int), ("dot11DefaultCipherAlgorithm", ctypes.c_int),
+        ("dwFlags", wintypes.DWORD), ("dwReserved", wintypes.DWORD),
+    ]
+
+
+class WLAN_AVAILABLE_NETWORK_LIST(ctypes.Structure):
+    _fields_ = [("dwNumberOfItems", wintypes.DWORD), ("dwIndex", wintypes.DWORD), ("Network", WLAN_AVAILABLE_NETWORK * 1)]
+
+
+class WLAN_CONNECTION_PARAMETERS(ctypes.Structure):
+    _fields_ = [
+        ("wlanConnectionMode", ctypes.c_int), ("strProfile", wintypes.LPCWSTR), ("pDot11Ssid", ctypes.POINTER(DOT11_SSID)),
+        ("pDesiredBssidList", ctypes.c_void_p), ("dot11BssType", ctypes.c_int), ("dwFlags", wintypes.DWORD),
+    ]
+
+
+AVAILABLE_NETWORK_CONNECTED = 0x1
+AVAILABLE_NETWORK_HAS_PROFILE = 0x2
+CONNECTION_MODE_PROFILE = 0
+DOT11_BSS_TYPE_INFRASTRUCTURE = 1
+
+
 _wlan.WlanOpenHandle.argtypes = [wintypes.DWORD, ctypes.c_void_p, ctypes.POINTER(wintypes.DWORD), ctypes.POINTER(wintypes.HANDLE)]
 _wlan.WlanCloseHandle.argtypes = [wintypes.HANDLE, ctypes.c_void_p]
 _wlan.WlanEnumInterfaces.argtypes = [wintypes.HANDLE, ctypes.c_void_p, ctypes.POINTER(ctypes.POINTER(WLAN_INTERFACE_INFO_LIST))]
@@ -121,8 +149,18 @@ _wlan.WlanGetNetworkBssList.argtypes = [
     ctypes.c_void_p, ctypes.POINTER(ctypes.POINTER(WLAN_BSS_LIST)),
 ]
 _wlan.WlanScan.argtypes = [wintypes.HANDLE, ctypes.POINTER(GUID), ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+_wlan.WlanGetAvailableNetworkList.argtypes = [
+    wintypes.HANDLE, ctypes.POINTER(GUID), wintypes.DWORD, ctypes.c_void_p, ctypes.POINTER(ctypes.POINTER(WLAN_AVAILABLE_NETWORK_LIST)),
+]
+_wlan.WlanSetProfile.argtypes = [
+    wintypes.HANDLE, ctypes.POINTER(GUID), wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.BOOL,
+    ctypes.c_void_p, ctypes.POINTER(wintypes.DWORD),
+]
+_wlan.WlanDeleteProfile.argtypes = [wintypes.HANDLE, ctypes.POINTER(GUID), wintypes.LPCWSTR, ctypes.c_void_p]
+_wlan.WlanConnect.argtypes = [wintypes.HANDLE, ctypes.POINTER(GUID), ctypes.POINTER(WLAN_CONNECTION_PARAMETERS), ctypes.c_void_p]
 _wlan.WlanFreeMemory.argtypes = [ctypes.c_void_p]
-for _f in ("WlanOpenHandle", "WlanCloseHandle", "WlanEnumInterfaces", "WlanQueryInterface", "WlanGetNetworkBssList", "WlanScan"):
+for _f in ("WlanOpenHandle", "WlanCloseHandle", "WlanEnumInterfaces", "WlanQueryInterface", "WlanGetNetworkBssList", "WlanScan",
+           "WlanGetAvailableNetworkList", "WlanSetProfile", "WlanDeleteProfile", "WlanConnect"):
     getattr(_wlan, _f).restype = wintypes.DWORD
 
 
@@ -336,3 +374,46 @@ class Wlan:
                 return out
             finally:
                 _wlan.WlanFreeMemory(p)
+
+    def available_networks(self, guid: GUID) -> list[dict]:
+        """One entry per SSID (and per saved profile matching it), as Windows' own network list sees them."""
+        with self._lock:
+            p = ctypes.POINTER(WLAN_AVAILABLE_NETWORK_LIST)()
+            rc = _wlan.WlanGetAvailableNetworkList(self._h, ctypes.byref(guid), 0, None, ctypes.byref(p))
+            if rc == ERROR_ACCESS_DENIED:
+                raise WlanError(rc, "location")
+            if rc != ERROR_SUCCESS:
+                raise WlanError(rc, f"WlanGetAvailableNetworkList failed ({rc})")
+            try:
+                n = p.contents.dwNumberOfItems
+                arr = ctypes.cast(ctypes.addressof(p.contents.Network), ctypes.POINTER(WLAN_AVAILABLE_NETWORK * n)).contents
+                return [{
+                    "ssid": x.dot11Ssid.text(), "profile": x.strProfileName or None,
+                    "hasProfile": bool(x.dwFlags & AVAILABLE_NETWORK_HAS_PROFILE),
+                    "connected": bool(x.dwFlags & AVAILABLE_NETWORK_CONNECTED),
+                    "connectable": bool(x.bNetworkConnectable), "securityEnabled": bool(x.bSecurityEnabled),
+                    "auth": x.dot11DefaultAuthAlgorithm, "cipher": x.dot11DefaultCipherAlgorithm,
+                    "infrastructure": x.dot11BssType == DOT11_BSS_TYPE_INFRASTRUCTURE,
+                } for x in arr]
+            finally:
+                _wlan.WlanFreeMemory(p)
+
+    def set_profile(self, guid: GUID, xml: str) -> None:
+        """Create or overwrite an all-user profile."""
+        with self._lock:
+            reason = wintypes.DWORD()
+            rc = _wlan.WlanSetProfile(self._h, ctypes.byref(guid), 0, xml, None, True, None, ctypes.byref(reason))
+            if rc != ERROR_SUCCESS:
+                raise WlanError(rc, f"WlanSetProfile failed ({rc}, reason {reason.value})")
+
+    def delete_profile(self, guid: GUID, name: str) -> None:
+        with self._lock:
+            _wlan.WlanDeleteProfile(self._h, ctypes.byref(guid), name, None)
+
+    def connect(self, guid: GUID, profile: str) -> None:
+        """Start connecting with a saved profile. Returns at once; the result shows up in connection()."""
+        with self._lock:
+            params = WLAN_CONNECTION_PARAMETERS(CONNECTION_MODE_PROFILE, profile, None, None, DOT11_BSS_TYPE_INFRASTRUCTURE, 0)
+            rc = _wlan.WlanConnect(self._h, ctypes.byref(guid), ctypes.byref(params), None)
+            if rc != ERROR_SUCCESS:
+                raise WlanError(rc, f"WlanConnect failed ({rc})")

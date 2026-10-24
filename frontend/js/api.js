@@ -34,6 +34,7 @@
     const startedAt = Date.now();
 
     const wifi = {
+      available: true,
       connected: true,
       interfaceName: 'Wi-Fi',
       ssid: 'HomeNet_5G',
@@ -248,10 +249,17 @@
           ['DIRECT-7B-HP Printer', 'fa:da:0c:7b:00:01', '2.4 GHz', 11, 'WPA2-Personal', '802.11n', 28],
           ['Mesh_Node_2', 'a4:2b:b0:7c:19:e5', '5 GHz', 36, 'WPA2-Personal', '802.11ax', 66],
         ];
-        return base.map(([ssid, bssid, band, channel, security, standard, s]) => ({
-          ssid, bssid, band, channel, security, standard,
-          signal: clamp(Math.round(s + (r() - 0.5) * 8), 5, 99), connected: bssid === wifi.bssid,
-        }));
+        return base.map(([ssid, bssid, band, channel, security, standard, s]) => {
+          const signal = clamp(Math.round(s + (r() - 0.5) * 8), 5, 99);
+          return { ssid, bssid, band, channel, security, standard, signal, rssi: Math.round(-100 + signal * 0.55), connected: bssid === wifi.bssid };
+        });
+      },
+
+      async connectWifi(ssid, password) {
+        await sleep(1500);
+        if (ssid === 'Cafe_Free') return { ok: true };
+        if (password == null) return { ok: false, needPassword: true };
+        return password === 'wrongpass' ? { ok: false, error: 'Không kết nối được — sai mật khẩu hoặc tín hiệu quá yếu' } : { ok: true };
       },
 
       async getUsage(range = '24h') { return usageBuckets(range); },
@@ -408,6 +416,7 @@
       getAdapters: () => get('/api/adapters'),
       getCapacity: () => get('/api/capacity'),
       scanWifi: () => req('POST', '/api/wifi/scan'),
+      connectWifi: (ssid, password) => req('POST', '/api/wifi/connect', { ssid, password }),
       getUsage: (range = '24h') => get(`/api/usage?range=${range}`),
       getHeatmap: () => get('/api/usage/heatmap'),
       getQuality: (range = '1h') => get(`/api/quality?range=${range}`),
@@ -464,7 +473,8 @@
     map('getEvents', (l) => l.map((e) => ({ ...e, title: tx(e.title), detail: tx(e.detail) })));
     map('action', (r) => ({ ...r, output: tx(r.output) }));
     map('dns', (r) => ({ ...r, error: tx(r.error) }));
-    map('scanWifi', (l) => l.map((x) => ({ ...x, ssid: tx(x.ssid) })));
+    map('scanWifi', (l) => l.map((x) => ({ ...x, ssid: x.hidden ? tx(x.ssid) : x.ssid })));
+    map('connectWifi', (r) => ({ ...r, error: tx(r.error) }));
     map('getAdapters', (l) => l.map((a) => ({ ...a, type: tx(a.type) })));
     map('getTargets', (l) => l.map((t) => ({ ...t, name: tx(t.name) })));
     map('getWifi', (w) => ({ ...w, error: tx(w.error), connectionMode: tx(w.connectionMode) }));

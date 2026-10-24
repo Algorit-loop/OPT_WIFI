@@ -156,6 +156,16 @@
     'Mạng Wi-Fi xung quanh': 'Nearby Wi-Fi networks',
     'Chưa quét': 'Not scanned yet',
     'Quét lại': 'Rescan',
+    'Kết nối': 'Connect',
+    'Đang kết nối…': 'Connecting…',
+    'Đã kết nối tới {x}': 'Connected to {x}',
+    'Kết nối tới {x}': 'Connect to {x}',
+    'Mật khẩu Wi-Fi': 'Wi-Fi password',
+    'Hiện mật khẩu': 'Show password',
+    'Mật khẩu Wi-Fi phải dài 8–63 ký tự': 'The Wi-Fi password must be 8–63 characters long',
+    'Huỷ': 'Cancel',
+    'Không kết nối được': 'Could not connect',
+    'Cần bật quyền Vị trí (Location) để kết nối Wi-Fi': 'Location permission is required to connect to Wi-Fi',
     'Băng tần': 'Band',
     'Kênh': 'Channel',
     'Độ rộng': 'Width',
@@ -480,6 +490,16 @@
 
   /* ---- messages written by the agent / demo provider (NP.tx) ---- */
   const EN_AGENT = {
+    // Wi-Fi connect errors
+    'Không có card Wi-Fi': 'No Wi-Fi adapter',
+    'Thiếu tên mạng (SSID)': 'Network name (SSID) is missing',
+    'Không còn thấy mạng này, hãy quét lại': 'This network is no longer visible, please rescan',
+    'Loại bảo mật này (doanh nghiệp / WEP) chưa hỗ trợ, hãy kết nối trong cài đặt Windows': 'This security type (enterprise / WEP) is not supported yet, connect from Windows settings',
+    'Mật khẩu Wi-Fi phải dài 8–63 ký tự': 'The Wi-Fi password must be 8–63 characters long',
+    'Windows không nhận cấu hình mạng này': 'Windows rejected this network configuration',
+    'Windows từ chối yêu cầu kết nối': 'Windows refused the connection request',
+    'Không kết nối được — sai mật khẩu hoặc tín hiệu quá yếu': 'Could not connect — wrong password or signal too weak',
+    'Không kết nối được tới mạng này': 'Could not connect to this network',
     // event titles
     'Đã xoá lịch sử': 'History deleted',
     'Speed test hoàn tất': 'Speed test completed',

@@ -98,7 +98,7 @@ trên một số máy, `netsh winsock reset`) chỉ chạy qua hộp thoại UAC
 ## API
 
 Tài liệu tự sinh: http://127.0.0.1:8765/api/docs. Các endpoint chính: `/api/status`, `/api/live`,
-`/api/wifi`, `/api/wifi/scan`, `/api/network`, `/api/adapters`, `/api/usage?range=24h|7d|30d|12m`,
+`/api/wifi`, `/api/wifi/scan`, `/api/wifi/connect`, `/api/network`, `/api/adapters`, `/api/usage?range=24h|7d|30d|12m`,
 `/api/usage/heatmap`, `/api/quality?range=1h|24h|7d`, `/api/quality/targets`, `/api/events`,
 `/api/speedtest/history`, `/api/tools/{speedtest,ping,traceroute,dns}`, `/api/jobs/{id}`, `/api/jobs/active`,
 `/api/actions/{flushdns,renew,release,reconnect,disconnect,resetWinsock,diag}`, `/api/settings`, `/api/data`.

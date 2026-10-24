@@ -23,16 +23,16 @@
           ${NP.cardHead(NP.t('Cấu hình mạng'), { icon: 'server', sub: `<span id="nSub">${NP.t('Giao diện chính')}</span>`, right: `<button class="btn sm" id="nRefresh" title="${NP.t('Làm mới')}">${NP.icon('refresh')}</button>` })}
           <div class="specs one" id="nSpecs"></div>
         </div>
-        <div class="card c-5">
-          ${NP.cardHead(NP.t('Mật độ kênh'), { icon: 'chart', sub: NP.t('Số điểm phát (BSS) trên mỗi kênh'), right: NP.seg('chBand', [['2.4 GHz', '2.4 GHz'], ['5 GHz', '5 GHz'], ['6 GHz', '6 GHz']], '2.4 GHz') })}
-          <div class="chart-box h-280"><canvas id="chChart"></canvas></div>
-          <div class="note" style="margin-top:12px" id="chNote">${NP.icon('info')}<span>${NP.t('Đang quét…')}</span></div>
-        </div>
-        <div class="card c-7">
+        <div class="card c-12">
           ${NP.cardHead(NP.t('Mạng Wi-Fi xung quanh'), { icon: 'scan', sub: `<span id="scanInfo">${NP.t('Chưa quét')}</span>`, right: `<button class="btn sm" id="scanBtn">${NP.icon('refresh')}${NP.t('Quét lại')}</button>` })}
           <div class="table-wrap tbl-scroll" style="max-height:420px"><table class="tbl">
             <thead><tr><th>SSID</th><th>${NP.t('Tín hiệu')}</th><th>${NP.t('Băng tần')}</th><th class="num">${NP.t('Kênh')}</th><th class="num">${NP.t('Độ rộng')}</th><th>${NP.t('Chuẩn')}</th><th>${NP.t('Bảo mật')}</th></tr></thead>
             <tbody id="scanBody"><tr><td colspan="7"><div class="skeleton" style="height:180px"></div></td></tr></tbody></table></div>
+        </div>
+        <div class="card c-12">
+          ${NP.cardHead(NP.t('Mật độ kênh'), { icon: 'chart', sub: NP.t('Số điểm phát (BSS) trên mỗi kênh'), right: NP.seg('chBand', [['2.4 GHz', '2.4 GHz'], ['5 GHz', '5 GHz'], ['6 GHz', '6 GHz']], '2.4 GHz') })}
+          <div class="chart-box h-280"><canvas id="chChart"></canvas></div>
+          <div class="note" style="margin-top:12px" id="chNote">${NP.icon('info')}<span>${NP.t('Đang quét…')}</span></div>
         </div>
         <div class="card c-12">
           ${NP.cardHead(NP.t('Card mạng (Adapters)'), { icon: 'plug', sub: NP.t('Tất cả giao diện mạng trên máy · lưu lượng tính từ lúc khởi động Windows') })}
@@ -225,8 +225,10 @@
         btn.disabled = false; btn.innerHTML = `${NP.icon('refresh')}${NP.t('Quét lại')}`;
         const ssids = new Set(nets.map((x) => x.ssid)).size;
         $('#scanInfo').textContent = NP.t('{n} điểm phát · {s} mạng · {t}', { n: nets.length, s: ssids, t: NP.fmtTime(Date.now()) });
-        $('#scanBody').innerHTML = nets.length ? nets.map((x) => `
-          <tr><td><b>${NP.esc(x.ssid)}</b> ${x.connected ? `<span class="badge good">${NP.t('Đang dùng')}</span>` : ''}<div class="muted mono" style="font-size:11px">${x.bssid}</div></td>
+        $('#scanBody').innerHTML = nets.length ? nets.map((x, i) => `
+          <tr><td><div class="row-flex" style="justify-content:space-between;flex-wrap:nowrap;gap:12px">
+            <div><b>${NP.esc(x.ssid)}</b> ${x.connected ? `<span class="badge good">${NP.t('Đang dùng')}</span>` : ''}<div class="muted mono" style="font-size:11px">${x.bssid}</div></div>
+            ${canConnect(x) ? `<button class="btn sm" data-connect="${i}">${NP.icon('link')}${NP.t('Kết nối')}</button>` : ''}</div></td>
           <td><span class="row-flex" style="gap:8px;flex-wrap:nowrap">${NP.signalHTML(x.signal)}<span class="mono" style="font-size:12px">${x.signal}% · ${x.rssi} dBm</span></span></td>
           <td><span class="badge ${x.band === '2.4 GHz' ? '' : 'info'}">${x.band || '—'}</span></td><td class="num">${x.channel ?? '—'}</td><td class="num">${x.width ? x.width + ' MHz' : '—'}</td>
           <td class="txt-2" title="${NP.esc(x.standard || '')}" style="white-space:nowrap">${NP.esc((x.standard || x.radioType || '—').replace(/ \(.*\)$/, ''))}</td><td>${x.security === 'Open' ? `<span class="badge crit">${NP.t('Mở')}</span>` : `<span class="txt-2">${NP.esc(x.security)}</span>`}</td></tr>`).join('')
@@ -234,6 +236,88 @@
         drawChannels();
       };
       $('#scanBtn').addEventListener('click', scan);
+
+      /* connect to a nearby network: saved profile → connect at once; secured without one → ask for the password */
+      const canConnect = (x) => !x.hidden && !x.connected && !(w.connected && x.ssid === w.ssid);
+      const connected = async (ssid) => {
+        NP.toast(NP.t('Đã kết nối tới {x}', { x: NP.esc(ssid) }), 'good', 4000);
+        try { w = await NP.api.getWifi(); n = await NP.api.getNetwork(); } catch { /* agent busy */ }
+        if (!root.isConnected) return;
+        drawHero(); drawSpecs(); drawNet(); scan();
+      };
+      const connectErr = (e) => (e.status === 403 ? NP.t('Cần bật quyền Vị trí (Location) để kết nối Wi-Fi') : e.message);
+      $('#scanBody').addEventListener('click', async (ev) => {
+        const b = ev.target.closest('[data-connect]');
+        if (!b) return;
+        const x = nets[+b.dataset.connect];
+        const label = b.innerHTML;
+        const lock = (on) => root.querySelectorAll('[data-connect]').forEach((o) => { o.disabled = on; });
+        const done = () => { b.innerHTML = label; lock(false); };
+        lock(true);
+        b.innerHTML = `${NP.icon('refresh', 'spin')}${NP.t('Đang kết nối…')}`;
+        let r;
+        try { r = await NP.api.connectWifi(x.ssid); } catch (e) { done(); NP.toast(NP.esc(connectErr(e)), 'crit', 5000); return; }
+        if (!root.isConnected) return;
+        if (r.ok) { done(); connected(x.ssid); return; }
+        if (!r.needPassword) { done(); NP.toast(`${NP.t('Thất bại:')} ${NP.esc(r.error)}`, 'crit', 6000); return; }
+        const ok = await askPassword(x, async (pw) => {
+          try { return await NP.api.connectWifi(x.ssid, pw); } catch (e) { return { ok: false, error: connectErr(e) }; }
+        });
+        done();
+        if (ok && root.isConnected) connected(x.ssid);
+      });
+
+      /** Password dialog. submit(pw) → {ok, error}; resolves true once connected, false on cancel. */
+      function askPassword(x, submit) {
+        return new Promise((resolve) => {
+          const el = document.createElement('div');
+          el.className = 'modal-back';
+          el.innerHTML = `
+            <form class="modal" role="dialog" aria-modal="true" aria-labelledby="pwTitle">
+              <div class="modal-head">${NP.icon('lock')}<div><div class="modal-title" id="pwTitle">${NP.t('Kết nối tới {x}', { x: NP.esc(x.ssid) })}</div>
+                <div class="muted" style="font-size:12px">${NP.esc(x.security || '')}</div></div></div>
+              <div class="field"><label for="pwInput">${NP.t('Mật khẩu Wi-Fi')}</label>
+                <input class="input mono" id="pwInput" type="password" autocomplete="off" spellcheck="false" minlength="8" maxlength="64" required></div>
+              <label class="row-flex muted" style="font-size:12px;gap:8px;cursor:pointer;margin-top:10px"><input type="checkbox" id="pwShow">${NP.t('Hiện mật khẩu')}</label>
+              <div class="modal-err" id="pwErr" hidden></div>
+              <div class="modal-foot">
+                <button type="button" class="btn" id="pwCancel">${NP.t('Huỷ')}</button>
+                <button type="submit" class="btn primary" id="pwOk">${NP.icon('link')}${NP.t('Kết nối')}</button>
+              </div>
+            </form>`;
+          document.body.appendChild(el);
+          const q = (s) => el.querySelector(s);
+          const input = q('#pwInput'), okBtn = q('#pwOk'), cancelBtn = q('#pwCancel'), err = q('#pwErr');
+          let busy = false;
+          const onKey = (e) => { if (e.key === 'Escape' && !busy) close(false); };
+          const close = (v) => { document.removeEventListener('keydown', onKey); el.remove(); resolve(v); };
+          const setBusy = (on) => {
+            busy = on;
+            okBtn.disabled = cancelBtn.disabled = input.disabled = on;
+            okBtn.innerHTML = on ? `${NP.icon('refresh', 'spin')}${NP.t('Đang kết nối…')}` : `${NP.icon('link')}${NP.t('Kết nối')}`;
+          };
+          document.addEventListener('keydown', onKey);
+          cancelBtn.addEventListener('click', () => close(false));
+          el.addEventListener('mousedown', (e) => { if (e.target === el && !busy) close(false); });
+          q('#pwShow').addEventListener('change', (e) => { input.type = e.target.checked ? 'text' : 'password'; });
+          q('form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            err.hidden = true;
+            if (input.value.length < 8) { showErr(NP.t('Mật khẩu Wi-Fi phải dài 8–63 ký tự')); return; }
+            setBusy(true);
+            const r = await submit(input.value);
+            if (r.ok) { close(true); return; }
+            setBusy(false);
+            showErr(r.error || NP.t('Không kết nối được'));
+          });
+          function showErr(msg) {
+            err.innerHTML = `${NP.icon('alert')}<span>${NP.esc(msg)}</span>`;
+            err.hidden = false;
+            input.focus(); input.select();
+          }
+          input.focus();
+        });
+      }
       NP.bindSeg(root, 'chBand', (v) => { band = v; drawChannels(); });
 
       function bindActions() {

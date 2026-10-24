@@ -302,6 +302,117 @@ def run_action(collector, name: str, elevate: bool = False) -> dict:
     return {"ok": ok, "output": out, "needsAdmin": needs_admin}
 
 
+# ====================================================================== Wi-Fi connect
+# dot11 auth algorithm → (profile <authentication>, <encryption>, needs a password)
+_PROFILE_AUTH = {
+    1: ("open", "none", False),       # Open
+    10: ("OWE", "AES", False),        # Enhanced Open
+    4: ("WPAPSK", None, True),        # WPA-Personal
+    7: ("WPA2PSK", None, True),       # WPA2-Personal
+    9: ("WPA3SAE", "AES", True),      # WPA3-Personal
+}
+_CIPHER_ENC = {2: "TKIP", 4: "AES"}
+
+
+def _xml(s: str) -> str:
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+
+def _profile_xml(ssid: str, auth: str, enc: str, password: str | None) -> str:
+    key = ""
+    if password is not None:
+        key_type = "networkKey" if len(password) == 64 else "passPhrase"
+        key = (f"<sharedKey><keyType>{key_type}</keyType><protected>false</protected>"
+               f"<keyMaterial>{_xml(password)}</keyMaterial></sharedKey>")
+    return (
+        '<?xml version="1.0"?><WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">'
+        f"<name>{_xml(ssid)}</name><SSIDConfig><SSID><hex>{ssid.encode('utf-8').hex().upper()}</hex>"
+        f"<name>{_xml(ssid)}</name></SSID></SSIDConfig><connectionType>ESS</connectionType>"
+        "<connectionMode>auto</connectionMode><MSM><security><authEncryption>"
+        f"<authentication>{auth}</authentication><encryption>{enc}</encryption><useOneX>false</useOneX>"
+        f"</authEncryption>{key}</security></MSM></WLANProfile>"
+    )
+
+
+def _wait_connected(collector, ssid: str, profile: str, timeout: float = 20.0) -> bool:
+    """Poll until the interface is connected to ssid; give up early once it settles back to disconnected."""
+    t0, started, idle_since = time.time(), False, None
+    while time.time() - t0 < timeout:
+        time.sleep(0.5)
+        c = collector.wlan.connection(collector.wlan_guid)
+        st = c.get("state")
+        if st == "connected" and (c.get("ssid") == ssid or c.get("profile") == profile):
+            return True
+        if st in ("associating", "authenticating", "discovering") or st == "connected":
+            started, idle_since = True, None
+        elif st == "disconnected" and started:
+            idle_since = idle_since or time.time()
+            if time.time() - idle_since > 4:
+                return False
+    return False
+
+
+def connect_wifi(collector, ssid: str, password: str | None = None) -> dict:
+    """Connect to a nearby network. Uses a saved profile when Windows has one; otherwise creates one.
+
+    Returns {"ok": True} on success, {"needPassword": True} when a secured network has no saved
+    profile and no password was given, or {"ok": False, "error": ...}.
+    """
+    from .winapi.wlan import WlanError
+
+    if not collector.wlan or not collector.wlan_guid:
+        return {"ok": False, "error": "Không có card Wi-Fi"}
+    ssid = (ssid or "").strip()
+    if not ssid:
+        return {"ok": False, "error": "Thiếu tên mạng (SSID)"}
+    try:
+        nets = [x for x in collector.wlan.available_networks(collector.wlan_guid) if x["ssid"] == ssid and x["infrastructure"]]
+    except WlanError as e:
+        if e.args and e.args[0] == 5:
+            return {"ok": False, "error": "location"}
+        raise
+    if not nets:
+        return {"ok": False, "error": "Không còn thấy mạng này, hãy quét lại"}
+
+    saved = next((x for x in nets if x["hasProfile"] and x["profile"]), None)
+    created = False
+    if saved and password is None:
+        profile = saved["profile"]
+    else:
+        net = nets[0]
+        spec = _PROFILE_AUTH.get(net["auth"])
+        if not spec:
+            return {"ok": False, "error": "Loại bảo mật này (doanh nghiệp / WEP) chưa hỗ trợ, hãy kết nối trong cài đặt Windows"}
+        auth, enc, needs_pw = spec
+        enc = enc or _CIPHER_ENC.get(net["cipher"], "AES")
+        if needs_pw and password is None:
+            return {"ok": False, "needPassword": True}
+        if needs_pw and not (8 <= len(password) <= 63 or (len(password) == 64 and all(c in "0123456789abcdefABCDEF" for c in password))):
+            return {"ok": False, "error": "Mật khẩu Wi-Fi phải dài 8–63 ký tự"}
+        profile = ssid
+        try:
+            collector.wlan.set_profile(collector.wlan_guid, _profile_xml(ssid, auth, enc, password if needs_pw else None))
+        except WlanError as e:
+            log.warning("set profile %r: %s", ssid, e)
+            return {"ok": False, "error": "Windows không nhận cấu hình mạng này"}
+        created = True
+
+    log.info("connecting to %r (profile %r, new=%s)", ssid, profile, created)
+    try:
+        collector.wlan.connect(collector.wlan_guid, profile)
+    except WlanError as e:
+        log.warning("connect %r: %s", ssid, e)
+        return {"ok": False, "error": "Windows từ chối yêu cầu kết nối"}
+    ok = _wait_connected(collector, ssid, profile)
+    collector.net_force.set()
+    if ok:
+        return {"ok": True}
+    if created and password is not None:
+        collector.wlan.delete_profile(collector.wlan_guid, profile)  # don't keep a wrong password
+        return {"ok": False, "error": "Không kết nối được — sai mật khẩu hoặc tín hiệu quá yếu"}
+    return {"ok": False, "error": "Không kết nối được tới mạng này"}
+
+
 def diagnose(collector) -> str:
     lines = []
     p = collector.net.get("primary") or {}

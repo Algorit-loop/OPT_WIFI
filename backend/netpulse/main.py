@@ -111,10 +111,20 @@ async def wifi_scan():
         cur = collector.wifi.get("bssid")
         for x in nets:
             x["connected"] = x["bssid"] == cur
+            x["hidden"] = not x["ssid"]
             x["ssid"] = x["ssid"] or "(mạng ẩn)"
         return sorted(nets, key=lambda x: -x["rssi"])
 
     return await run_in_threadpool(scan)
+
+
+@app.post("/api/wifi/connect")
+async def wifi_connect(body: dict = Body(...)):
+    pw = body.get("password")
+    r = await run_in_threadpool(tools.connect_wifi, collector, str(body.get("ssid") or ""), None if pw is None else str(pw))
+    if r.get("error") == "location":
+        raise HTTPException(403, "location")
+    return r
 
 
 @app.get("/api/network")
