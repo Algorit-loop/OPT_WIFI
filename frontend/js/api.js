@@ -240,7 +240,9 @@
         await sleep(1200);
         const r = Math.random;
         const base = [
-          [wifi.ssid, wifi.bssid, '5 GHz', 44, 'WPA2-Personal', '802.11ax', 84],
+          [wifi.ssid, 'a4:2b:b0:7c:19:e2', '5 GHz', 44, 'WPA2-Personal', '802.11ax', 84],
+          [wifi.ssid, 'a4:2b:b0:7c:19:e3', '2.4 GHz', 6, 'WPA2-Personal', '802.11n', 70],   // switch works
+          [wifi.ssid, 'a4:2b:b0:7c:19:e4', '5 GHz', 149, 'WPA2-Personal', '802.11ax', 45],  // switch fails → rolled back
           ['HomeNet', 'a4:2b:b0:7c:19:e0', '2.4 GHz', 6, 'WPA2-Personal', '802.11n', 78],
           ['TP-Link_A3F2', '50:c7:bf:a3:f2:11', '2.4 GHz', 1, 'WPA2-Personal', '802.11n', 61],
           ['Viettel_Fiber', 'e4:c3:2a:91:0b:5c', '5 GHz', 149, 'WPA3-Personal', '802.11ax', 52],
@@ -260,6 +262,16 @@
         if (ssid === 'Cafe_Free') return { ok: true };
         if (password == null) return { ok: false, needPassword: true };
         return password === 'wrongpass' ? { ok: false, error: 'Không kết nối được — sai mật khẩu hoặc tín hiệu quá yếu' } : { ok: true };
+      },
+
+      async switchWifi(bssid) {
+        await sleep(1800);
+        const to = { 'a4:2b:b0:7c:19:e2': ['5 GHz', 44], 'a4:2b:b0:7c:19:e3': ['2.4 GHz', 6], 'a4:2b:b0:7c:19:e4': ['5 GHz', 149] }[bssid];
+        const from = { bssid: wifi.bssid, channel: wifi.channel, band: wifi.band };
+        if (!to) return { ok: false, reason: 'not_found' };
+        if (bssid.endsWith(':e4')) return { ok: false, reason: 'no_internet', rollback: 'bssid', from, now: from };
+        Object.assign(wifi, { bssid, band: to[0], channel: to[1] });
+        return { ok: true, bssid, band: to[0], channel: to[1], from };
       },
 
       async getUsage(range = '24h') { return usageBuckets(range); },
@@ -417,6 +429,7 @@
       getCapacity: () => get('/api/capacity'),
       scanWifi: () => req('POST', '/api/wifi/scan'),
       connectWifi: (ssid, password) => req('POST', '/api/wifi/connect', { ssid, password }),
+      switchWifi: (bssid) => req('POST', '/api/wifi/switch', { bssid }),
       getUsage: (range = '24h') => get(`/api/usage?range=${range}`),
       getHeatmap: () => get('/api/usage/heatmap'),
       getQuality: (range = '1h') => get(`/api/quality?range=${range}`),

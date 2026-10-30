@@ -462,7 +462,7 @@ table.tbl { width: 100%; border-collapse: separate; border-spacing: 0; font-size
 .tbl th {
   text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
   color: var(--muted); font-weight: 600; padding: 9px 10px; border-bottom: 1px solid var(--border);
-  white-space: nowrap; position: sticky; top: 0; background: var(--panel-solid);
+  white-space: nowrap; position: sticky; top: 0; z-index: 2; background: var(--panel-solid);
 }
 .tbl td { padding: 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .tbl tbody tr { transition: background 0.2s; }
@@ -741,4 +741,5 @@ input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.25); }
 .modal-title { font-weight: 700; font-size: 15px; overflow-wrap: anywhere; }
 .modal-err { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 12.5px; color: var(--crit); }
 .modal-err svg { width: 16px; height: 16px; flex: none; }
+.pw-mask { -webkit-text-security: disc; }
 .modal-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }

@@ -5,6 +5,7 @@ Long-running tools run as background "jobs" that the UI polls for new lines/item
 from __future__ import annotations
 
 import logging
+import re
 import socket
 import statistics
 import subprocess
@@ -19,7 +20,7 @@ import dns.resolver
 import dns.reversename
 
 from . import speedtest
-from .config import TMP_DIR
+from .config import TMP_DIR, settings
 from .util import CREATE_NO_WINDOW, is_admin, oem_encoding, run_cmd
 from .winapi import icmp
 
@@ -352,7 +353,19 @@ def _wait_connected(collector, ssid: str, profile: str, timeout: float = 20.0) -
     return False
 
 
+_wifi_op = threading.Lock()  # one connect / switch at a time
+
+
 def connect_wifi(collector, ssid: str, password: str | None = None) -> dict:
+    if not _wifi_op.acquire(blocking=False):
+        return {"ok": False, "error": "Đang có thao tác Wi-Fi khác, hãy thử lại sau"}
+    try:
+        return _connect_wifi(collector, ssid, password)
+    finally:
+        _wifi_op.release()
+
+
+def _connect_wifi(collector, ssid: str, password: str | None) -> dict:
     """Connect to a nearby network. Uses a saved profile when Windows has one; otherwise creates one.
 
     Returns {"ok": True} on success, {"needPassword": True} when a secured network has no saved
@@ -411,6 +424,120 @@ def connect_wifi(collector, ssid: str, password: str | None = None) -> dict:
         collector.wlan.delete_profile(collector.wlan_guid, profile)  # don't keep a wrong password
         return {"ok": False, "error": "Không kết nối được — sai mật khẩu hoặc tín hiệu quá yếu"}
     return {"ok": False, "error": "Không kết nối được tới mạng này"}
+
+
+def _wait_bssid(collector, want: str | None, timeout: float) -> dict:
+    """Poll the connection until it is up on `want` (any access point when None).
+
+    Returns early with the connection once Windows has settled on another access point after the link
+    went down (it fell back). Otherwise returns the last state seen when the time runs out.
+    """
+    t0, down, c = time.time(), False, {}
+    while time.time() - t0 < timeout:
+        time.sleep(0.3)
+        c = collector.wlan.connection(collector.wlan_guid)
+        if c.get("state") == "connected":
+            if want is None or c.get("bssid") == want or down:
+                return c
+        else:
+            down = True
+    return c
+
+
+def _internet_ok(ip: str, tries: int) -> bool:
+    for i in range(tries):
+        try:
+            if icmp.ping(ip, 1000)["ok"]:
+                return True
+        except OSError:
+            pass
+        if i < tries - 1:
+            time.sleep(0.5)
+    return False
+
+
+def switch_bssid(collector, bssid: str) -> dict:
+    """Move to another access point (BSSID) of the network we are connected to.
+
+    Succeeds only when we end up on that BSSID and the Internet still answers. Otherwise we go back to the
+    previous BSSID (about 1 s) — better than leaving it to Windows, which takes 6–7 s and may pick a
+    different access point. Result: {ok, reason?, rollback?, from, now | bssid/channel/band}.
+    reason: not_connected | not_found | busy | location | failed | other_ap | no_internet
+    rollback: bssid (back on the old one) | profile (Windows chose) | failed
+    """
+    bssid = (bssid or "").strip().lower().replace("-", ":")
+    if not collector.wlan or not collector.wlan_guid or not re.fullmatch(r"([0-9a-f]{2}:){5}[0-9a-f]{2}", bssid):
+        return {"ok": False, "reason": "not_found"}
+    if not _wifi_op.acquire(blocking=False):
+        return {"ok": False, "reason": "busy"}
+    try:
+        return _switch_bssid(collector, bssid)
+    finally:
+        _wifi_op.release()
+
+
+def _switch_bssid(collector, bssid: str) -> dict:
+    from .winapi.wlan import WlanError, channel_to_band
+
+    w, guid = collector.wlan, collector.wlan_guid
+    cur = w.connection(guid)
+    if cur.get("state") != "connected" or not cur.get("profile"):
+        return {"ok": False, "reason": "not_connected"}
+    try:
+        target = next((b for b in w.bss_list(guid) if b["bssid"] == bssid), None)
+    except WlanError as e:
+        if e.args and e.args[0] == 5:
+            return {"ok": False, "reason": "location"}
+        raise
+    if not target or target["ssid"] != cur["ssid"]:
+        return {"ok": False, "reason": "not_found"}
+
+    def where(c: dict) -> dict:
+        return {"bssid": c.get("bssid"), "channel": c.get("channel"), "band": channel_to_band(c.get("channel") or 0)}
+
+    here = where(cur)
+    if bssid == cur["bssid"]:
+        return {"ok": True, "bssid": bssid, "channel": target["channel"], "band": target["band"], "from": here}
+
+    # Only demand Internet after the switch if it worked before it (an ISP outage is not the switch's fault).
+    try:
+        ip = icmp.resolve(settings["pingTarget"])
+    except OSError:
+        ip = None
+    need_net = bool(ip) and _internet_ok(ip, 2)
+
+    log.info("switch %r: %s (ch %s) -> %s (ch %s)", cur["ssid"], cur["bssid"], here["channel"], bssid, target["channel"])
+    try:
+        w.connect(guid, cur["profile"], bssid)
+    except WlanError as e:
+        log.warning("switch connect: %s", e)
+        return {"ok": False, "reason": "failed", "rollback": "bssid", "from": here, "now": here}  # nothing changed
+
+    now = _wait_bssid(collector, bssid, 8)
+    if now.get("state") != "connected":
+        reason = "failed"
+    elif now.get("bssid") != bssid:
+        reason = "other_ap"
+    elif need_net and not _internet_ok(ip, 6):
+        reason = "no_internet"
+    else:
+        collector.net_force.set()
+        return {"ok": True, "bssid": bssid, "channel": target["channel"], "band": target["band"], "from": here}
+
+    log.warning("switch to %s failed (%s), going back to %s", bssid, reason, cur["bssid"])
+    rollback = "failed"
+    try:
+        w.connect(guid, cur["profile"], cur["bssid"])
+        back = _wait_bssid(collector, cur["bssid"], 8)
+        if back.get("state") == "connected" and back.get("bssid") == cur["bssid"]:
+            rollback = "bssid"
+        else:  # the old access point is gone: let Windows pick one of the network
+            w.connect(guid, cur["profile"])
+            rollback = "profile" if _wait_bssid(collector, None, 10).get("state") == "connected" else "failed"
+    except WlanError as e:
+        log.warning("switch rollback: %s", e)
+    collector.net_force.set()
+    return {"ok": False, "reason": reason, "rollback": rollback, "from": here, "now": where(w.connection(guid))}
 
 
 def diagnose(collector) -> str:

@@ -131,6 +131,16 @@ class WLAN_CONNECTION_PARAMETERS(ctypes.Structure):
     ]
 
 
+class DOT11_BSSID_LIST(ctypes.Structure):
+    """NDIS_OBJECT_HEADER (Type, Revision, Size) + counts + a one-entry MAC array."""
+    _fields_ = [
+        ("Type", ctypes.c_ubyte), ("Revision", ctypes.c_ubyte), ("Size", ctypes.c_ushort),
+        ("uNumOfEntries", wintypes.ULONG), ("uTotalNumOfEntries", wintypes.ULONG), ("BSSIDs", (ctypes.c_ubyte * 6) * 1),
+    ]
+
+
+NDIS_OBJECT_TYPE_DEFAULT = 0x80
+DOT11_BSSID_LIST_REVISION_1 = 1
 AVAILABLE_NETWORK_CONNECTED = 0x1
 AVAILABLE_NETWORK_HAS_PROFILE = 0x2
 CONNECTION_MODE_PROFILE = 0
@@ -410,10 +420,20 @@ class Wlan:
         with self._lock:
             _wlan.WlanDeleteProfile(self._h, ctypes.byref(guid), name, None)
 
-    def connect(self, guid: GUID, profile: str) -> None:
-        """Start connecting with a saved profile. Returns at once; the result shows up in connection()."""
+    def connect(self, guid: GUID, profile: str, bssid: str | None = None) -> None:
+        """Start connecting with a saved profile. Returns at once; the result shows up in connection().
+
+        With `bssid` the connection prefers that access point. It is a preference, not a lock: if the
+        access point cannot be reached Windows falls back to another one of the same network.
+        """
         with self._lock:
-            params = WLAN_CONNECTION_PARAMETERS(CONNECTION_MODE_PROFILE, profile, None, None, DOT11_BSS_TYPE_INFRASTRUCTURE, 0)
+            want = None
+            if bssid:
+                want = DOT11_BSSID_LIST(NDIS_OBJECT_TYPE_DEFAULT, DOT11_BSSID_LIST_REVISION_1, ctypes.sizeof(DOT11_BSSID_LIST), 1, 1)
+                for i, b in enumerate(bytes.fromhex(bssid.replace(":", ""))):
+                    want.BSSIDs[0][i] = b
+            params = WLAN_CONNECTION_PARAMETERS(
+                CONNECTION_MODE_PROFILE, profile, None, ctypes.addressof(want) if want else None, DOT11_BSS_TYPE_INFRASTRUCTURE, 0)
             rc = _wlan.WlanConnect(self._h, ctypes.byref(guid), ctypes.byref(params), None)
             if rc != ERROR_SUCCESS:
                 raise WlanError(rc, f"WlanConnect failed ({rc})")

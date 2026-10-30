@@ -127,6 +127,14 @@ async def wifi_connect(body: dict = Body(...)):
     return r
 
 
+@app.post("/api/wifi/switch")
+async def wifi_switch(body: dict = Body(...)):
+    r = await run_in_threadpool(tools.switch_bssid, collector, str(body.get("bssid") or ""))
+    if r.get("reason") == "location":
+        raise HTTPException(403, "location")
+    return r
+
+
 @app.get("/api/network")
 def network():
     p = collector.net.get("primary") or {}

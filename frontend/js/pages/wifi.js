@@ -228,7 +228,7 @@
         $('#scanBody').innerHTML = nets.length ? nets.map((x, i) => `
           <tr><td><div class="row-flex" style="justify-content:space-between;flex-wrap:nowrap;gap:12px">
             <div><b>${NP.esc(x.ssid)}</b> ${x.connected ? `<span class="badge good">${NP.t('Đang dùng')}</span>` : ''}<div class="muted mono" style="font-size:11px">${x.bssid}</div></div>
-            ${canConnect(x) ? `<button class="btn sm" data-connect="${i}">${NP.icon('link')}${NP.t('Kết nối')}</button>` : ''}</div></td>
+            ${rowButton(x, i)}</div></td>
           <td><span class="row-flex" style="gap:8px;flex-wrap:nowrap">${NP.signalHTML(x.signal)}<span class="mono" style="font-size:12px">${x.signal}% · ${x.rssi} dBm</span></span></td>
           <td><span class="badge ${x.band === '2.4 GHz' ? '' : 'info'}">${x.band || '—'}</span></td><td class="num">${x.channel ?? '—'}</td><td class="num">${x.width ? x.width + ' MHz' : '—'}</td>
           <td class="txt-2" title="${NP.esc(x.standard || '')}" style="white-space:nowrap">${NP.esc((x.standard || x.radioType || '—').replace(/ \(.*\)$/, ''))}</td><td>${x.security === 'Open' ? `<span class="badge crit">${NP.t('Mở')}</span>` : `<span class="txt-2">${NP.esc(x.security)}</span>`}</td></tr>`).join('')
@@ -237,13 +237,26 @@
       };
       $('#scanBtn').addEventListener('click', scan);
 
-      /* connect to a nearby network: saved profile → connect at once; secured without one → ask for the password */
-      const canConnect = (x) => !x.hidden && !x.connected && !(w.connected && x.ssid === w.ssid);
-      const connected = async (ssid) => {
-        NP.toast(NP.t('Đã kết nối tới {x}', { x: NP.esc(ssid) }), 'good', 4000);
+      /* Every row is one access point (BSSID). Another access point of the network we are on gets "Chuyển"
+         (move to it); any other network gets "Kết nối" (connect). */
+      const sameNet = (x) => w.connected && x.ssid === w.ssid;
+      const canConnect = (x) => !x.hidden && !x.connected && !sameNet(x);
+      const canSwitch = (x) => !x.hidden && !x.connected && sameNet(x);
+      const rowButton = (x, i) => (canSwitch(x)
+        ? `<button class="btn sm" data-switch="${i}" title="${NP.esc(NP.t('Chuyển sang kênh {ch} ({b})', { ch: x.channel ?? '?', b: x.band || '?' }))}">${NP.icon('radio')}${NP.t('Chuyển')}</button>`
+        : canConnect(x) ? `<button class="btn sm" data-connect="${i}">${NP.icon('link')}${NP.t('Kết nối')}</button>` : '');
+      const lockButtons = (on) => root.querySelectorAll('[data-connect],[data-switch]').forEach((o) => { o.disabled = on; });
+      const refreshAfterConnect = async (wait = 0) => {
+        if (wait) await new Promise((r) => setTimeout(r, wait)); // the agent re-reads Wi-Fi every ~2 s
         try { w = await NP.api.getWifi(); n = await NP.api.getNetwork(); } catch { /* agent busy */ }
         if (!root.isConnected) return;
         drawHero(); drawSpecs(); drawNet(); scan();
+      };
+
+      /* connect to a nearby network: saved profile → connect at once; secured without one → ask for the password */
+      const connected = async (ssid) => {
+        NP.toast(NP.t('Đã kết nối tới {x}', { x: NP.esc(ssid) }), 'good', 4000);
+        refreshAfterConnect();
       };
       const connectErr = (e) => (e.status === 403 ? NP.t('Cần bật quyền Vị trí (Location) để kết nối Wi-Fi') : e.message);
       $('#scanBody').addEventListener('click', async (ev) => {
@@ -251,9 +264,8 @@
         if (!b) return;
         const x = nets[+b.dataset.connect];
         const label = b.innerHTML;
-        const lock = (on) => root.querySelectorAll('[data-connect]').forEach((o) => { o.disabled = on; });
-        const done = () => { b.innerHTML = label; lock(false); };
-        lock(true);
+        const done = () => { b.innerHTML = label; lockButtons(false); };
+        lockButtons(true);
         b.innerHTML = `${NP.icon('refresh', 'spin')}${NP.t('Đang kết nối…')}`;
         let r;
         try { r = await NP.api.connectWifi(x.ssid); } catch (e) { done(); NP.toast(NP.esc(connectErr(e)), 'crit', 5000); return; }
@@ -267,24 +279,60 @@
         if (ok && root.isConnected) connected(x.ssid);
       });
 
+      /* switch to another access point of the current network; the agent goes back by itself when it fails */
+      const SWITCH_WHY = {
+        not_connected: 'Máy chưa kết nối Wi-Fi', not_found: 'Không còn thấy điểm phát này, hãy quét lại',
+        busy: 'Đang có thao tác Wi-Fi khác, hãy thử lại sau', failed: 'Không kết nối được tới điểm phát này',
+        other_ap: 'Windows đã kết nối sang điểm phát khác', no_internet: 'Đã kết nối nhưng không ra được Internet',
+      };
+      const switchFailText = (r) => {
+        const where = r.now ? { ch: r.now.channel ?? '?', b: r.now.band || '?' } : {};
+        const back = r.rollback === 'bssid' ? NP.t('Đã quay lại kênh {ch} ({b})', where)
+          : r.rollback === 'profile' ? NP.t('Đã kết nối lại, Windows tự chọn điểm phát')
+          : r.rollback === 'failed' ? NP.t('Chưa kết nối lại được, Windows sẽ tự kết nối lại mạng đã biết') : '';
+        return `${NP.t('Không chuyển được:')} ${NP.t(SWITCH_WHY[r.reason] || 'Không kết nối được tới điểm phát này')}. ${back}`.trim();
+      };
+      $('#scanBody').addEventListener('click', async (ev) => {
+        const b = ev.target.closest('[data-switch]');
+        if (!b) return;
+        const x = nets[+b.dataset.switch];
+        const label = b.innerHTML;
+        lockButtons(true);
+        b.innerHTML = `${NP.icon('refresh', 'spin')}${NP.t('Đang chuyển…')}`;
+        let r;
+        try { r = await NP.api.switchWifi(x.bssid); } catch (e) { r = { ok: false, text: connectErr(e) }; }
+        if (!root.isConnected) return;
+        b.innerHTML = label; lockButtons(false);
+        if (r.ok) {
+          NP.toast(NP.esc(NP.t('Đã chuyển sang kênh {ch} ({b})', { ch: r.channel ?? '?', b: r.band || '?' })), 'good', 4000);
+          refreshAfterConnect(2200);
+        } else {
+          NP.toast(NP.esc(r.text || switchFailText(r)), 'crit', 8000);
+          refreshAfterConnect();
+        }
+      });
+
+      /* No <form> and no type="password": that is what makes the browser offer to save the password.
+         The field is a plain text input masked with CSS; browsers without that CSS fall back to type="password". */
+      const MASK = CSS.supports('-webkit-text-security', 'disc');
       /** Password dialog. submit(pw) → {ok, error}; resolves true once connected, false on cancel. */
       function askPassword(x, submit) {
         return new Promise((resolve) => {
           const el = document.createElement('div');
           el.className = 'modal-back';
           el.innerHTML = `
-            <form class="modal" role="dialog" aria-modal="true" aria-labelledby="pwTitle">
+            <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pwTitle">
               <div class="modal-head">${NP.icon('lock')}<div><div class="modal-title" id="pwTitle">${NP.t('Kết nối tới {x}', { x: NP.esc(x.ssid) })}</div>
                 <div class="muted" style="font-size:12px">${NP.esc(x.security || '')}</div></div></div>
               <div class="field"><label for="pwInput">${NP.t('Mật khẩu Wi-Fi')}</label>
-                <input class="input mono" id="pwInput" type="password" autocomplete="off" spellcheck="false" minlength="8" maxlength="64" required></div>
+                <input class="input mono" id="pwInput" type="${MASK ? 'text' : 'password'}" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="64" data-lpignore="true" data-1p-ignore></div>
               <label class="row-flex muted" style="font-size:12px;gap:8px;cursor:pointer;margin-top:10px"><input type="checkbox" id="pwShow">${NP.t('Hiện mật khẩu')}</label>
               <div class="modal-err" id="pwErr" hidden></div>
               <div class="modal-foot">
                 <button type="button" class="btn" id="pwCancel">${NP.t('Huỷ')}</button>
-                <button type="submit" class="btn primary" id="pwOk">${NP.icon('link')}${NP.t('Kết nối')}</button>
+                <button type="button" class="btn primary" id="pwOk">${NP.icon('link')}${NP.t('Kết nối')}</button>
               </div>
-            </form>`;
+            </div>`;
           document.body.appendChild(el);
           const q = (s) => el.querySelector(s);
           const input = q('#pwInput'), okBtn = q('#pwOk'), cancelBtn = q('#pwCancel'), err = q('#pwErr');
@@ -299,9 +347,12 @@
           document.addEventListener('keydown', onKey);
           cancelBtn.addEventListener('click', () => close(false));
           el.addEventListener('mousedown', (e) => { if (e.target === el && !busy) close(false); });
-          q('#pwShow').addEventListener('change', (e) => { input.type = e.target.checked ? 'text' : 'password'; });
-          q('form').addEventListener('submit', async (e) => {
-            e.preventDefault();
+          const mask = (on) => { if (MASK) input.classList.toggle('pw-mask', on); else input.type = on ? 'password' : 'text'; };
+          mask(true);
+          q('#pwShow').addEventListener('change', (e) => mask(!e.target.checked));
+          input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !busy) { e.preventDefault(); go(); } });
+          okBtn.addEventListener('click', () => { if (!busy) go(); });
+          async function go() {
             err.hidden = true;
             if (input.value.length < 8) { showErr(NP.t('Mật khẩu Wi-Fi phải dài 8–63 ký tự')); return; }
             setBusy(true);
@@ -309,7 +360,7 @@
             if (r.ok) { close(true); return; }
             setBusy(false);
             showErr(r.error || NP.t('Không kết nối được'));
-          });
+          }
           function showErr(msg) {
             err.innerHTML = `${NP.icon('alert')}<span>${NP.esc(msg)}</span>`;
             err.hidden = false;
