@@ -389,7 +389,7 @@ def _connect_wifi(collector, ssid: str, password: str | None) -> dict:
 
     saved = next((x for x in nets if x["hasProfile"] and x["profile"]), None)
     created = False
-    if saved and password is None:
+    if saved:  # keep the profile Windows already has (and its password) — never overwrite or delete it
         profile = saved["profile"]
     else:
         net = nets[0]
@@ -462,8 +462,8 @@ def switch_bssid(collector, bssid: str) -> dict:
     Succeeds only when we end up on that BSSID and the Internet still answers. Otherwise we go back to the
     previous BSSID (about 1 s) — better than leaving it to Windows, which takes 6–7 s and may pick a
     different access point. Result: {ok, reason?, rollback?, from, now | bssid/channel/band}.
-    reason: not_connected | not_found | busy | location | failed | other_ap | no_internet
-    rollback: bssid (back on the old one) | profile (Windows chose) | failed
+    reason: not_connected | not_found | busy | location | failed | stayed | other_ap | no_internet
+    rollback: bssid (back on the old one) | profile (Windows chose) | failed | none (never left)
     """
     bssid = (bssid or "").strip().lower().replace("-", ":")
     if not collector.wlan or not collector.wlan_guid or not re.fullmatch(r"([0-9a-f]{2}:){5}[0-9a-f]{2}", bssid):
@@ -516,6 +516,9 @@ def _switch_bssid(collector, bssid: str) -> dict:
     now = _wait_bssid(collector, bssid, 8)
     if now.get("state") != "connected":
         reason = "failed"
+    elif now.get("bssid") == cur["bssid"]:
+        # The link never moved (the driver ignored the preference): nothing to roll back.
+        return {"ok": False, "reason": "stayed", "rollback": "none", "from": here, "now": here}
     elif now.get("bssid") != bssid:
         reason = "other_ap"
     elif need_net and not _internet_ok(ip, 6):

@@ -148,7 +148,7 @@ Mọi thứ ứng dụng tạo ra đều nằm trong `OPT_WIFI`:
 - Không ghi registry, không tạo Windows service, không đặt gì vào thư mục Startup.
 - Giao diện **không** dùng `localStorage`/`sessionStorage` của trình duyệt. Mọi trạng thái (kể cả mốc "sự kiện đã xem") lưu trong database của agent.
 
-> **Xoá thư mục `OPT_WIFI` là gỡ sạch ứng dụng.** Ngoại lệ duy nhất là Python của hệ thống: nó được dùng để tạo `.venv` nhưng không bị thay đổi.
+> **Xoá thư mục `OPT_WIFI` là gỡ sạch ứng dụng.** Hai ngoại lệ: Python của hệ thống (dùng để tạo `.venv`, không bị thay đổi) và hồ sơ Wi-Fi mà Windows lưu khi bạn kết nối một mạng mới bằng nút **Kết nối** (giống kết nối trong Settings; xoá bằng `netsh wlan delete profile name="<tên mạng>"`).
 
 ---
 
@@ -347,6 +347,9 @@ Có nút sao chép cạnh các giá trị như BSSID, MAC.
 - Bấm **Quét lại**: agent ra lệnh cho card Wi-Fi quét, chờ khoảng 3.5 giây rồi trả về danh sách mọi điểm phát.
 - Mỗi điểm phát gồm: SSID (mạng ẩn hiện "(mạng ẩn)"), BSSID, tín hiệu % và dBm, băng tần, kênh, độ rộng kênh, chuẩn, bảo mật.
 - Mạng không mật khẩu được đánh dấu đỏ "Mở".
+- Mỗi điểm phát có một nút:
+  - **Kết nối** (mạng khác): dùng hồ sơ Windows đã lưu; mạng có mật khẩu mà chưa lưu thì hiện hộp thoại nhập mật khẩu (Huỷ / Kết nối). Mật khẩu sai thì hồ sơ vừa tạo bị xoá. Hỗ trợ Open, OWE, WPA, WPA2, WPA3-Personal; mạng doanh nghiệp (802.1X) và WEP thì kết nối trong Settings của Windows.
+  - **Chuyển** (điểm phát khác của chính mạng đang dùng, ví dụ từ 2.4 GHz kênh 10 sang 5 GHz kênh 48): agent ưu tiên BSSID đó và chỉ coi là thành công khi vào đúng BSSID và vẫn ra được Internet. Nếu không thì tự quay lại BSSID cũ (khoảng 1 giây, nhanh hơn để Windows tự kết nối lại 6–7 giây và có thể vào điểm khác). Đây là ưu tiên, không phải khoá cứng: Windows vẫn có thể tự chuyển đi nơi khác sau đó. Lúc chuyển, kết nối đang mở có thể đứt khoảng 1 giây.
 
 **e) Mật độ kênh**
 - Biểu đồ số điểm phát trên mỗi kênh, chọn băng 2.4 / 5 / 6 GHz. Kênh của bạn tô màu riêng.
@@ -617,6 +620,8 @@ Agent cung cấp REST API tại `http://127.0.0.1:8765`. Tài liệu tương tá
 | GET | `/api/live?since=<ms>` hoặc `?n=<số>` | Mẫu realtime mới hơn mốc `since`, hoặc `n` mẫu gần nhất. Mỗi mẫu gồm ↓, ↑, ping, jitter, mất gói, tín hiệu và bộ đếm phiên/ngày/tháng. |
 | GET | `/api/wifi` | Thông tin Wi-Fi hiện tại |
 | POST | `/api/wifi/scan` | Quét mạng xung quanh (~3.5 s) |
+| POST | `/api/wifi/connect` | Kết nối tới một mạng: `{ssid, password?}`. Trả `needPassword` khi mạng có mật khẩu mà Windows chưa lưu. |
+| POST | `/api/wifi/switch` | Chuyển sang điểm phát khác của mạng đang dùng: `{bssid}`. Thất bại thì tự quay lại BSSID cũ (`reason`, `rollback`). |
 | GET | `/api/network` | Cấu hình giao diện chính, IP public, nhà mạng |
 | GET | `/api/adapters` | Danh sách card mạng |
 | GET | `/api/capacity` | Kết quả speed test gần nhất ("mức tối đa") |

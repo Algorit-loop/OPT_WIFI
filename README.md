@@ -57,7 +57,9 @@ OPT_WIFI/
 ```
 
 Không ghi registry, không tạo service, không đặt gì vào Startup, không dùng localStorage của trình duyệt.
-**Xoá thư mục `OPT_WIFI` là gỡ sạch.** (Python của hệ thống chỉ được dùng để tạo `.venv`, không bị thay đổi.)
+**Xoá thư mục `OPT_WIFI` là gỡ sạch**, trừ hai điều: Python của hệ thống chỉ được dùng để tạo `.venv` và không bị thay đổi; và khi bạn
+dùng nút **Kết nối** với một mạng mới, Windows lưu hồ sơ Wi-Fi (kèm mật khẩu, do Windows mã hoá) giống như khi kết nối trong Settings.
+Hồ sơ đó nằm ngoài thư mục này; xoá bằng `netsh wlan delete profile name="<tên mạng>"` hoặc trong Settings → Network & internet → Wi-Fi → Manage known networks.
 
 ## Dữ liệu lấy từ đâu
 

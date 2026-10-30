@@ -269,9 +269,9 @@
         b.innerHTML = `${NP.icon('refresh', 'spin')}${NP.t('Đang kết nối…')}`;
         let r;
         try { r = await NP.api.connectWifi(x.ssid); } catch (e) { done(); NP.toast(NP.esc(connectErr(e)), 'crit', 5000); return; }
-        if (!root.isConnected) return;
         if (r.ok) { done(); connected(x.ssid); return; }
         if (!r.needPassword) { done(); NP.toast(`${NP.t('Thất bại:')} ${NP.esc(r.error)}`, 'crit', 6000); return; }
+        if (!root.isConnected) return;
         const ok = await askPassword(x, async (pw) => {
           try { return await NP.api.connectWifi(x.ssid, pw); } catch (e) { return { ok: false, error: connectErr(e) }; }
         });
@@ -283,6 +283,7 @@
       const SWITCH_WHY = {
         not_connected: 'Máy chưa kết nối Wi-Fi', not_found: 'Không còn thấy điểm phát này, hãy quét lại',
         busy: 'Đang có thao tác Wi-Fi khác, hãy thử lại sau', failed: 'Không kết nối được tới điểm phát này',
+        stayed: 'Windows giữ nguyên điểm phát hiện tại (card Wi-Fi có thể không hỗ trợ chọn điểm phát)',
         other_ap: 'Windows đã kết nối sang điểm phát khác', no_internet: 'Đã kết nối nhưng không ra được Internet',
       };
       const switchFailText = (r) => {
@@ -301,7 +302,6 @@
         b.innerHTML = `${NP.icon('refresh', 'spin')}${NP.t('Đang chuyển…')}`;
         let r;
         try { r = await NP.api.switchWifi(x.bssid); } catch (e) { r = { ok: false, text: connectErr(e) }; }
-        if (!root.isConnected) return;
         b.innerHTML = label; lockButtons(false);
         if (r.ok) {
           NP.toast(NP.esc(NP.t('Đã chuyển sang kênh {ch} ({b})', { ch: r.channel ?? '?', b: r.band || '?' })), 'good', 4000);

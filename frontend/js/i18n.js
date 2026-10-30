@@ -167,6 +167,7 @@
     'Đang có thao tác Wi-Fi khác, hãy thử lại sau': 'Another Wi-Fi operation is in progress, try again shortly',
     'Không kết nối được tới điểm phát này': 'Could not connect to this access point',
     'Windows đã kết nối sang điểm phát khác': 'Windows connected to a different access point',
+    'Windows giữ nguyên điểm phát hiện tại (card Wi-Fi có thể không hỗ trợ chọn điểm phát)': 'Windows stayed on the current access point (the Wi-Fi adapter may not support choosing one)',
     'Đã kết nối nhưng không ra được Internet': 'Connected, but the Internet is not reachable',
     'Đã quay lại kênh {ch} ({b})': 'Went back to channel {ch} ({b})',
     'Đã kết nối lại, Windows tự chọn điểm phát': 'Reconnected, Windows chose the access point',
